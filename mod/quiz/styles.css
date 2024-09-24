@@ -303,10 +303,6 @@ body.path-mod-quiz table tbody tr.gradedattempt > td.sticky-column {
     text-align: center;
 }
 
-#page-mod-quiz-summary .questionflag {
-    vertical-align: text-bottom;
-}
-
 #page-mod-quiz-summary #quiz-timer {
     text-align: center;
     margin-top: 1em;
@@ -815,7 +811,7 @@ table.quizreviewsummary td.cell {
 }
 
 #page-mod-quiz-edit .question-bank-table {
-    width: auto;
+    width: 100%;
 }
 
 #page-mod-quiz-edit .question-bank-table .header {
@@ -889,6 +885,7 @@ table.quizreviewsummary td.cell {
 
 #page-mod-quiz-edit .question-bank-table .questionnametext {
     padding: 0 0.2em;
+    width: 100% !important; /* stylelint-disable-line declaration-no-important */
 }
 
 #page-mod-quiz-edit .question-bank-table .questiontext {
@@ -915,6 +912,12 @@ table.quizreviewsummary td.cell {
 #page-mod-quiz-edit table.question-bank-table th {
     overflow: hidden;
     white-space: nowrap;
+    width: 1.2em !important; /* stylelint-disable-line declaration-no-important */
+}
+
+#page-mod-quiz-edit table.question-bank-table td.questionnametext > div {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .mod_quiz_qbank_dialogue {

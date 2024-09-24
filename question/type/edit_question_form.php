@@ -140,7 +140,12 @@ abstract class question_edit_form extends question_wizard_form {
      * @return string|null default value for a given form element.
      */
     protected function get_default_value(string $name, $default): ?string {
-        return question_bank::get_qtype($this->qtype())->get_default_value($name, $default);
+        global $CFG;
+
+        if (!empty($CFG->questiondefaultssave)) {
+            return question_bank::get_qtype($this->qtype())->get_default_value($name, $default);
+        }
+        return $default;
     }
 
     /**
@@ -477,8 +482,7 @@ abstract class question_edit_form extends question_wizard_form {
             $element->setValue(array('text' => get_string($feedbackname.'default', 'question')));
 
             if ($withshownumpartscorrect && $feedbackname == 'partiallycorrectfeedback') {
-                $mform->addElement('advcheckbox', 'shownumcorrect',
-                        get_string('options', 'question'),
+                $mform->addElement('advcheckbox', 'shownumcorrect', '',
                         get_string('shownumpartscorrectwhenfinished', 'question'));
                 $mform->setDefault('shownumcorrect', true);
             }
@@ -502,8 +506,8 @@ abstract class question_edit_form extends question_wizard_form {
 
         $optionelements = array();
         if ($withclearwrong) {
-            $optionelements[] = $mform->createElement('advcheckbox', 'hintclearwrong',
-                    get_string('options', 'question'), get_string('clearwrongparts', 'question'));
+            $optionelements[] = $mform->createElement('advcheckbox', 'hintclearwrong', '',
+                    get_string('clearwrongparts', 'question'));
         }
         if ($withshownumpartscorrect) {
             $optionelements[] = $mform->createElement('advcheckbox', 'hintshownumcorrect', '',

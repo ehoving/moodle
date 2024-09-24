@@ -64,10 +64,10 @@ class manager {
         ];
         $table->attributes['class'] = 'admintable generaltable table table-bordered';
         $table->colclasses = [
-            'text-right',
+            'text-end',
             '',
             '',
-            'text-right',
+            'text-end',
             'text-center',
         ];
         $factors = factor::get_enabled_factors();
@@ -349,12 +349,10 @@ class manager {
             try {
                 // Clear locked user factors, they may now reauth with anything.
                 @$DB->set_field('tool_mfa', 'lockcounter', 0, ['userid' => $USER->id]);
-            // @codingStandardsIgnoreStart
+                // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
             } catch (\Exception $e) {
                 // This occurs when upgrade.php hasn't been run. Nothing to do here.
-                // Coding standards ignored, they break on empty catches.
             }
-            // @codingStandardsIgnoreEnd
 
             // Fire post pass state factor actions.
             $factors = factor::get_active_user_factor_types();

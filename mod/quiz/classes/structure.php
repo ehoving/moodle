@@ -24,6 +24,7 @@ use mod_quiz\event\quiz_grade_item_deleted;
 use mod_quiz\event\quiz_grade_item_updated;
 use mod_quiz\event\slot_grade_item_updated;
 use mod_quiz\event\slot_mark_updated;
+use mod_quiz\event\slot_version_updated;
 use mod_quiz\question\bank\qbank_helper;
 use mod_quiz\question\qubaids_for_quiz;
 use stdClass;
@@ -67,6 +68,12 @@ class structure {
 
     /** @var bool caches the results of can_add_random_question. */
     protected $canaddrandom = null;
+
+    /** @var array the slotids => question categories array for all slots containing a random question. */
+    protected $randomslotcategories = null;
+
+    /** @var array the slotids => question tags array for all slots containing a random question. */
+    protected $randomslottags = null;
 
     /**
      * Create an instance of this class representing an empty quiz.
@@ -1169,6 +1176,56 @@ class structure {
     }
 
     /**
+     * Update the question version for a given slot, if necessary.
+     *
+     * @param int $id ID of row from the quiz_slots table.
+     * @param int|null $newversion The new question version for the slot.
+     *                             A null value means 'Always latest'.
+     * @return bool True if the version was updated, false if no update was required.
+     * @throws coding_exception If the specified version does not exist.
+     */
+    public function update_slot_version(int $id, ?int $newversion): bool {
+        global $DB;
+
+        $slot = $this->get_slot_by_id($id);
+        $context = $this->quizobj->get_context();
+        $refparams = ['usingcontextid' => $context->id, 'component' => 'mod_quiz', 'questionarea' => 'slot', 'itemid' => $slot->id];
+        $reference = $DB->get_record('question_references', $refparams, '*', MUST_EXIST);
+        $oldversion = is_null($reference->version) ? null : (int) $reference->version;
+        $reference->version = $newversion === 0 ? null : $newversion;
+        $existsparams = ['questionbankentryid' => $reference->questionbankentryid, 'version' => $newversion];
+        $versionexists = $DB->record_exists('question_versions', $existsparams);
+
+        // We are attempting to switch to an existing version.
+        // Verify that the version we want to switch to exists.
+        if (!is_null($newversion) && !$versionexists) {
+            throw new coding_exception(
+                'Version: ' . $newversion . ' ' .
+                'does not exist for question bank entry: ' . $reference->questionbankentryid
+            );
+        }
+
+        if ($newversion === $oldversion) {
+            return false;
+        }
+
+        $transaction = $DB->start_delegated_transaction();
+        $DB->update_record('question_references', $reference);
+        slot_version_updated::create([
+            'context' => $this->quizobj->get_context(),
+            'objectid' => $slot->id,
+            'other' => [
+                'quizid' => $this->get_quizid(),
+                'previousversion' => $oldversion,
+                'newversion' => $reference->version,
+            ],
+        ])->trigger();
+        $transaction->allow_commit();
+
+        return true;
+    }
+
+    /**
      * Change which grade this slot contributes to, for quizzes with multiple grades.
      *
      * It does not update 'sumgrades' in the quiz table. If this method returns true,
@@ -1183,6 +1240,10 @@ class structure {
 
         if ($gradeitemid === 0) {
             $gradeitemid = null;
+        }
+
+        if ($gradeitemid !== null && !$this->is_real_question($slot->slot)) {
+            throw new coding_exception('Cannot set a grade item for a question that is ungraded.');
         }
 
         if ($slot->quizgradeitemid !== null) {
@@ -1644,6 +1705,124 @@ class structure {
             $randomslot->set_quiz($this->get_quiz());
             $randomslot->set_filter_condition(json_encode($filtercondition));
             $randomslot->insert($addonpage);
+        }
+    }
+
+    /**
+     * Get a human-readable description of a random slot.
+     *
+     * @param int $slotid id of slot.
+     * @return string that can be used to display the random slot.
+     */
+    public function describe_random_slot(int $slotid): string {
+        $this->ensure_random_slot_info_loaded();
+
+        if (!isset($this->randomslotcategories[$slotid])) {
+            throw new coding_exception('Called describe_random_slot on slot id ' .
+                $slotid . ' which is not a random slot.');
+        }
+
+        // Build the random question name with categories and tags information and return.
+        $a = new stdClass();
+        $a->category = $this->randomslotcategories[$slotid];
+        $stringid = 'randomqnamecat';
+
+        if (!empty($this->randomslottags[$slotid])) {
+            $a->tags = $this->randomslottags[$slotid];
+            $stringid = 'randomqnamecattags';
+        }
+
+        return shorten_text(get_string($stringid, 'quiz', $a), 255);
+    }
+
+    /**
+     * Ensure that {@see load_random_slot_info()} has been called, so the data is available.
+     */
+    protected function ensure_random_slot_info_loaded(): void {
+        if ($this->randomslotcategories == null) {
+            $this->load_random_slot_info();
+        }
+    }
+
+    /**
+     * Load information about the question categories and tags for all random slots,
+     */
+    protected function load_random_slot_info(): void {
+        global $DB;
+
+        // Find the random slots.
+        $allslots = $this->get_slots();
+        foreach ($allslots as $key => $slot) {
+            if ($slot->qtype != 'random') {
+                unset($allslots[$key]);
+            }
+        }
+        if (empty($allslots)) {
+            // No random slots. Nothing to do.
+            $this->randomslotcategories = [];
+            $this->randomslottags = [];
+            return;
+        }
+
+        // Loop over all random slots to build arrays of the data we will need.
+        $tagids = [];
+        $questioncategoriesids = [];
+        $randomcategoriesandtags = []; // An associative array of slotid => ['cat' => catid, 'tag' => [tagid, tagid, ...]].
+        foreach ($allslots as $slotid => $slot) {
+            foreach ($slot->filtercondition as $name => $value) {
+                if ($name !== 'filter') {
+                    continue;
+                }
+
+                // Parse the filter condition.
+                foreach ($value as $filteroption => $filtervalue) {
+                    if ($filteroption === 'category') {
+                        $randomcategoriesandtags[$slotid]['cat'] = $filtervalue['values'];
+                        $questioncategoriesids[] = $filtervalue['values'][0];
+                    }
+
+                    if ($filteroption === 'qtagids') {
+                        foreach ($filtervalue as $qtagidsoption => $qtagidsvalue) {
+                            if ($qtagidsoption !== 'values') {
+                                continue;
+                            }
+                            foreach ($qtagidsvalue as $qtagidsvaluevalue) {
+                                $randomcategoriesandtags[$slotid]['tag'][] = $qtagidsvaluevalue;
+                                $tagids[] = $qtagidsvaluevalue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get names for all tags into a tagid => name array.
+        $tags = \core_tag_tag::get_bulk($tagids, 'id, rawname');
+        $tagnames = array_map(fn($tag) => $tag->get_display_name(), $tags);
+
+        // Get names for all question categories.
+        $categories = $DB->get_records_list('question_categories', 'id', $questioncategoriesids,
+            'id', 'id, name, contextid, parent');
+        $categorynames = [];
+        foreach ($categories as $id => $category) {
+            if ($category->name === 'top') {
+                $categoryname = $DB->get_field('question_categories', 'name', ['parent' => $id]);
+            } else {
+                $categoryname = $category->name;
+            }
+            $categorynames[$id] = $categoryname;
+        }
+
+        // Now, put the data required for each slot into $this->randomslotcategories and $this->randomslottags.
+        foreach ($randomcategoriesandtags as $slotid => $catandtags) {
+            $this->randomslotcategories[$slotid] = $categorynames[$catandtags['cat'][0]];
+            if (isset($catandtags['tag'])) {
+                $slottagnames = [];
+                foreach ($catandtags['tag'] as $tagid) {
+                    $slottagnames[] = $tagnames[$tagid];
+                }
+                $this->randomslottags[$slotid] = implode(', ', $slottagnames);
+            }
         }
     }
 }

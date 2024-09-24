@@ -77,12 +77,24 @@ Feature: Adding random questions to a quiz based on category and tags
     And I apply question bank filter "Tag" with value "foo"
     And I select "1" from the "randomcount" singleselect
     And I press "Add random question"
-    And I should see "Random question based on filter condition with tags: foo" on quiz page "1"
-    When I click on "Configure question" "link" in the "Random question based on filter condition with tags: foo" "list_item"
+    And I should see "Random (Questions Category 1) based on filter condition with tags: foo" on quiz page "1"
+    When I click on "Configure question" "link" in the "Random (Questions Category 1) based on filter condition with tags: foo" "list_item"
     Then I should see "Questions Category 1"
     And I should see "foo"
     And I should see "question 1 name"
     And I should see "\"listen\" & \"answer\""
+
+  Scenario: After closing and reopening the modal, it still works
+    When I am on the "Quiz 1" "mod_quiz > Edit" page logged in as teacher1
+    And I open the "last" add to quiz menu
+    And I follow "a random question"
+    And I click on "Close" "button" in the "Add a random question at the end" "dialogue"
+    And I open the "last" add to quiz menu
+    And I follow "a random question"
+    And I should not see "question 3 name"
+    And I set the field "Category" to "Subcategory"
+    And I press "Apply filters"
+    Then I should see "question 3 name"
 
   Scenario: Teacher without moodle/question:useall should not see the add a random question menu item
     Given the following "permission overrides" exist:
@@ -103,6 +115,6 @@ Feature: Adding random questions to a quiz based on category and tags
       | Name            | New Random category |
       | Parent category |  Default for Quiz 1 |
     And I press "Create category and add random question"
-    And I should see "Random question based on filter condition" on quiz page "1"
-    And I click on "Configure question" "link" in the "Random question based on filter condition" "list_item"
+    And I should see "Random (New Random category) based on filter condition" on quiz page "1"
+    And I click on "Configure question" "link" in the "Random (New Random category) based on filter condition" "list_item"
     Then I should see "New Random category"
